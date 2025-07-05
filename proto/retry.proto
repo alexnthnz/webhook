@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package retry;
+
+option go_package = "github.com/alexnthnz/webhook/proto/generated";
+
+import "google/protobuf/timestamp.proto";
+
+// Retry Manager Service
+service RetryManager {
+  rpc ScheduleRetry (ScheduleRetryRequest) returns (ScheduleRetryResponse);
+  rpc GetRetryStatus (GetRetryStatusRequest) returns (GetRetryStatusResponse);
+  rpc CancelRetry (CancelRetryRequest) returns (CancelRetryResponse);
+  rpc ListRetries (ListRetriesRequest) returns (ListRetriesResponse);
+  rpc ProcessRetries (ProcessRetriesRequest) returns (ProcessRetriesResponse);
+}
+
+// Request/Response Messages
+message ScheduleRetryRequest {
+  string event_id = 1;
+  string webhook_id = 2;
+  string customer_id = 3;
+  bytes payload = 4;
+  int32 attempt_number = 5;
+  string failure_reason = 6;
+  google.protobuf.Timestamp next_retry_at = 7;
+  map<string, string> headers = 8;
+}
+
+message ScheduleRetryResponse {
+  string retry_id = 1;
+  google.protobuf.Timestamp scheduled_at = 2;
+  bool success = 3;
+}
+
+message GetRetryStatusRequest {
+  string retry_id = 1;
+  string event_id = 2;
+}
+
+message GetRetryStatusResponse {
+  RetryStatus status = 1;
+}
+
+message CancelRetryRequest {
+  string retry_id = 1;
+  string event_id = 2;
+  string reason = 3;
+}
+
+message CancelRetryResponse {
+  bool success = 1;
+}
+
+message ListRetriesRequest {
+  string webhook_id = 1;
+  string customer_id = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+  RetryState state = 5;
+}
+
+message ListRetriesResponse {
+  repeated RetryStatus retries = 1;
+  int32 total_count = 2;
+}
+
+message ProcessRetriesRequest {
+  int32 batch_size = 1;
+}
+
+message ProcessRetriesResponse {
+  int32 processed_count = 1;
+  repeated string processed_retry_ids = 2;
+}
+
+// Data Models
+message RetryStatus {
+  string retry_id = 1;
+  string event_id = 2;
+  string webhook_id = 3;
+  string customer_id = 4;
+  bytes payload = 5;
+  int32 attempt_number = 6;
+  int32 max_attempts = 7;
+  string failure_reason = 8;
+  RetryState state = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp next_retry_at = 11;
+  google.protobuf.Timestamp last_attempted_at = 12;
+  map<string, string> headers = 13;
+}
+
+enum RetryState {
+  RETRY_STATE_UNSPECIFIED = 0;
+  RETRY_STATE_SCHEDULED = 1;
+  RETRY_STATE_IN_PROGRESS = 2;
+  RETRY_STATE_COMPLETED = 3;
+  RETRY_STATE_FAILED = 4;
+  RETRY_STATE_CANCELLED = 5;
+  RETRY_STATE_EXPIRED = 6;
+} 

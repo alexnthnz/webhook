@@ -1,0 +1,151 @@
+syntax = "proto3";
+
+package observability;
+
+option go_package = "github.com/alexnthnz/webhook/proto/generated";
+
+import "google/protobuf/timestamp.proto";
+
+// Observability Service
+service ObservabilityService {
+  rpc RecordMetric (RecordMetricRequest) returns (RecordMetricResponse);
+  rpc RecordDeliveryEvent (RecordDeliveryEventRequest) returns (RecordDeliveryEventResponse);
+  rpc GetWebhookLogs (GetWebhookLogsRequest) returns (GetWebhookLogsResponse);
+  rpc GetMetrics (GetMetricsRequest) returns (GetMetricsResponse);
+  rpc GetDeliveryStats (GetDeliveryStatsRequest) returns (GetDeliveryStatsResponse);
+  rpc StreamLogs (StreamLogsRequest) returns (stream LogEntry);
+}
+
+// Request/Response Messages
+message RecordMetricRequest {
+  string metric_name = 1;
+  double value = 2;
+  map<string, string> labels = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+message RecordMetricResponse {
+  bool success = 1;
+}
+
+message RecordDeliveryEventRequest {
+  string event_id = 1;
+  string webhook_id = 2;
+  string customer_id = 3;
+  string event_type = 4;
+  DeliveryStatus status = 5;
+  int32 http_status_code = 6;
+  int32 attempt_number = 7;
+  int64 latency_ms = 8;
+  string error_message = 9;
+  google.protobuf.Timestamp timestamp = 10;
+  map<string, string> metadata = 11;
+}
+
+message RecordDeliveryEventResponse {
+  bool success = 1;
+}
+
+message GetWebhookLogsRequest {
+  string webhook_id = 1;
+  string customer_id = 2;
+  google.protobuf.Timestamp start_time = 3;
+  google.protobuf.Timestamp end_time = 4;
+  int32 limit = 5;
+  int32 offset = 6;
+  DeliveryStatus status_filter = 7;
+}
+
+message GetWebhookLogsResponse {
+  repeated LogEntry logs = 1;
+  int32 total_count = 2;
+}
+
+message GetMetricsRequest {
+  string webhook_id = 1;
+  string customer_id = 2;
+  google.protobuf.Timestamp start_time = 3;
+  google.protobuf.Timestamp end_time = 4;
+  repeated string metric_names = 5;
+}
+
+message GetMetricsResponse {
+  repeated MetricData metrics = 1;
+}
+
+message GetDeliveryStatsRequest {
+  string webhook_id = 1;
+  string customer_id = 2;
+  google.protobuf.Timestamp start_time = 3;
+  google.protobuf.Timestamp end_time = 4;
+  string group_by = 5; // "hour", "day", "week"
+}
+
+message GetDeliveryStatsResponse {
+  DeliveryStats stats = 1;
+  repeated TimeSeriesPoint time_series = 2;
+}
+
+message StreamLogsRequest {
+  string webhook_id = 1;
+  string customer_id = 2;
+  DeliveryStatus status_filter = 3;
+}
+
+// Data Models
+message LogEntry {
+  string log_id = 1;
+  string event_id = 2;
+  string webhook_id = 3;
+  string customer_id = 4;
+  string event_type = 5;
+  DeliveryStatus status = 6;
+  int32 http_status_code = 7;
+  int32 attempt_number = 8;
+  int64 latency_ms = 9;
+  string error_message = 10;
+  string request_payload = 11;
+  string response_payload = 12;
+  map<string, string> request_headers = 13;
+  map<string, string> response_headers = 14;
+  google.protobuf.Timestamp timestamp = 15;
+  map<string, string> metadata = 16;
+}
+
+message MetricData {
+  string metric_name = 1;
+  repeated DataPoint data_points = 2;
+  map<string, string> labels = 3;
+}
+
+message DataPoint {
+  google.protobuf.Timestamp timestamp = 1;
+  double value = 2;
+}
+
+message DeliveryStats {
+  int64 total_deliveries = 1;
+  int64 successful_deliveries = 2;
+  int64 failed_deliveries = 3;
+  int64 retried_deliveries = 4;
+  double success_rate = 5;
+  double average_latency_ms = 6;
+  double p95_latency_ms = 7;
+  double p99_latency_ms = 8;
+  map<string, int64> status_code_distribution = 9;
+  map<string, int64> error_distribution = 10;
+}
+
+message TimeSeriesPoint {
+  google.protobuf.Timestamp timestamp = 1;
+  DeliveryStats stats = 2;
+}
+
+enum DeliveryStatus {
+  DELIVERY_STATUS_UNSPECIFIED = 0;
+  DELIVERY_STATUS_SUCCESS = 1;
+  DELIVERY_STATUS_FAILED = 2;
+  DELIVERY_STATUS_RETRYING = 3;
+  DELIVERY_STATUS_EXPIRED = 4;
+  DELIVERY_STATUS_CANCELLED = 5;
+} 

@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package webhook;
+
+option go_package = "github.com/alexnthnz/webhook/proto/generated";
+
+import "google/protobuf/timestamp.proto";
+
+// Webhook Registry Service
+service WebhookRegistry {
+  rpc CreateWebhook (CreateWebhookRequest) returns (CreateWebhookResponse);
+  rpc GetWebhook (GetWebhookRequest) returns (GetWebhookResponse);
+  rpc GetWebhooksForEvent (GetWebhooksForEventRequest) returns (GetWebhooksForEventResponse);
+  rpc GetWebhooksByCustomer (GetWebhooksByCustomerRequest) returns (GetWebhooksByCustomerResponse);
+  rpc UpdateWebhook (UpdateWebhookRequest) returns (UpdateWebhookResponse);
+  rpc DeleteWebhook (DeleteWebhookRequest) returns (DeleteWebhookResponse);
+  rpc ListWebhooks (ListWebhooksRequest) returns (ListWebhooksResponse);
+}
+
+// Request/Response Messages
+message CreateWebhookRequest {
+  string customer_id = 1;
+  string url = 2;
+  repeated string event_types = 3;
+  RetryPolicy retry_policy = 4;
+  string secret = 5;
+  map<string, string> headers = 6;
+}
+
+message CreateWebhookResponse {
+  string webhook_id = 1;
+  string secret = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message GetWebhookRequest {
+  string webhook_id = 1;
+  string customer_id = 2;
+}
+
+message GetWebhookResponse {
+  Webhook webhook = 1;
+}
+
+message GetWebhooksForEventRequest {
+  string event_type = 1;
+}
+
+message GetWebhooksForEventResponse {
+  repeated Webhook webhooks = 1;
+}
+
+message GetWebhooksByCustomerRequest {
+  string customer_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message GetWebhooksByCustomerResponse {
+  repeated Webhook webhooks = 1;
+  int32 total_count = 2;
+}
+
+message UpdateWebhookRequest {
+  string webhook_id = 1;
+  string customer_id = 2;
+  optional string url = 3;
+  repeated string event_types = 4;
+  optional RetryPolicy retry_policy = 5;
+  map<string, string> headers = 6;
+}
+
+message UpdateWebhookResponse {
+  Webhook webhook = 1;
+}
+
+message DeleteWebhookRequest {
+  string webhook_id = 1;
+  string customer_id = 2;
+}
+
+message DeleteWebhookResponse {
+  bool success = 1;
+}
+
+message ListWebhooksRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  string customer_id = 3;
+}
+
+message ListWebhooksResponse {
+  repeated Webhook webhooks = 1;
+  int32 total_count = 2;
+}
+
+// Data Models
+message Webhook {
+  string webhook_id = 1;
+  string customer_id = 2;
+  string url = 3;
+  repeated string event_types = 4;
+  RetryPolicy retry_policy = 5;
+  string secret = 6;
+  map<string, string> headers = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  bool active = 10;
+}
+
+message RetryPolicy {
+  int32 max_attempts = 1;
+  string backoff_type = 2; // "exponential" or "linear"
+  int32 initial_delay_ms = 3;
+  int32 max_delay_ms = 4;
+  double multiplier = 5;
+} 
