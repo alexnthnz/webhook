@@ -30,6 +30,7 @@ build: proto-gen
 	@go build -o bin/webhook-dispatcher ./cmd/webhook-dispatcher
 	@go build -o bin/retry-manager ./cmd/retry-manager
 	@go build -o bin/observability ./cmd/observability
+	@go build -o bin/dlq ./cmd/dlq
 	@echo "Build complete"
 
 # Test

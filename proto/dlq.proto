@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package dlq;
+
+option go_package = "github.com/alexnthnz/webhook/proto/generated/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// DLQ Service for handling dead letter queue operations
+service DLQService {
+  rpc SendToDLQ(SendToDLQRequest) returns (SendToDLQResponse);
+  rpc GetDLQMessages(GetDLQMessagesRequest) returns (GetDLQMessagesResponse);
+  rpc RequeueMessage(RequeueMessageRequest) returns (RequeueMessageResponse);
+  rpc DeleteDLQMessage(DeleteDLQMessageRequest) returns (DeleteDLQMessageResponse);
+}
+
+// Request to send a message to DLQ
+message SendToDLQRequest {
+  string event_id = 1;
+  string webhook_id = 2;
+  string customer_id = 3;
+  string event_type = 4;
+  bytes original_event_payload = 5;
+  string failure_reason = 6;
+  int32 attempts = 7;
+  google.protobuf.Timestamp first_failed_at = 8;
+  google.protobuf.Timestamp last_failed_at = 9;
+  map<string, string> headers = 10;
+}
+
+// Response for sending message to DLQ
+message SendToDLQResponse {
+  bool success = 1;
+  string message_id = 2;
+}
+
+// Request to get DLQ messages
+message GetDLQMessagesRequest {
+  string customer_id = 1;
+  string webhook_id = 2;
+  string event_type = 3;
+  int32 limit = 4;
+  int32 offset = 5;
+}
+
+// Response with DLQ messages
+message GetDLQMessagesResponse {
+  repeated DLQMessage messages = 1;
+  int32 total_count = 2;
+}
+
+// DLQ Message representation
+message DLQMessage {
+  string event_id = 1;
+  string webhook_id = 2;
+  string customer_id = 3;
+  string event_type = 4;
+  bytes original_event_payload = 5;
+  string failure_reason = 6;
+  int32 attempts = 7;
+  google.protobuf.Timestamp first_failed_at = 8;
+  google.protobuf.Timestamp last_failed_at = 9;
+  google.protobuf.Timestamp created_at = 10;
+  map<string, string> headers = 11;
+}
+
+// Request to requeue a message
+message RequeueMessageRequest {
+  string event_id = 1;
+}
+
+// Response for requeue operation
+message RequeueMessageResponse {
+  bool success = 1;
+}
+
+// Request to delete a DLQ message
+message DeleteDLQMessageRequest {
+  string event_id = 1;
+}
+
+// Response for delete operation
+message DeleteDLQMessageResponse {
+  bool success = 1;
+} 

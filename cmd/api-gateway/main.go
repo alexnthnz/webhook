@@ -36,7 +36,7 @@ func main() {
 	log.Info("Starting API Gateway Service")
 
 	// Initialize service
-	service, err := gateway.NewService(cfg.APIGateway, log)
+	service, err := gateway.NewService(cfg.APIGateway, cfg.Security, log)
 	if err != nil {
 		log.WithError(err).Fatal("Failed to create API Gateway service")
 	}

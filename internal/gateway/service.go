@@ -30,7 +30,7 @@ type Service struct {
 }
 
 // NewService creates a new API Gateway service
-func NewService(cfg config.APIGatewayConfig, logger *logrus.Logger) (*Service, error) {
+func NewService(cfg config.APIGatewayConfig, securityCfg config.SecurityConfig, logger *logrus.Logger) (*Service, error) {
 	// Connect to webhook registry
 	webhookConn, err := grpc.Dial(cfg.WebhookRegistryAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -45,10 +45,10 @@ func NewService(cfg config.APIGatewayConfig, logger *logrus.Logger) (*Service, e
 
 	// Initialize JWT manager
 	jwtManager := security.NewJWTManager(
-		"your-secret-key", // In production, get from config
-		"webhook-service",
-		"webhook-api",
-		time.Hour*24,
+		securityCfg.JWTSecret,
+		securityCfg.JWTIssuer,
+		securityCfg.JWTAudience,
+		securityCfg.JWTExpiration,
 	)
 
 	// Initialize auth middleware

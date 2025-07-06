@@ -282,6 +282,33 @@ services:
     networks:
       - webhook-network
 
+  dlq:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dlq
+    container_name: webhook-dlq
+    ports:
+      - "8087:8087"
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: info
+      DLQ_PORT: 8087
+      DLQ_HOST: "0.0.0.0"
+      DLQ_TOPIC: webhook-dlq
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: webhook_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres123
+      DB_SSL_MODE: disable
+      KAFKA_BROKERS: kafka-kraft:29092
+    depends_on:
+      - postgres
+      - kafka-kraft
+    networks:
+      - webhook-network
+
 # Named volumes for data persistence
 volumes:
   postgres_data:
