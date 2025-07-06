@@ -4,7 +4,7 @@
 // 	protoc        v5.29.3
 // source: proto/dlq.proto
 
-package proto
+package generated
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -701,7 +701,7 @@ const file_proto_dlq_proto_rawDesc = "" +
 	"\tSendToDLQ\x12\x15.dlq.SendToDLQRequest\x1a\x16.dlq.SendToDLQResponse\x12I\n" +
 	"\x0eGetDLQMessages\x12\x1a.dlq.GetDLQMessagesRequest\x1a\x1b.dlq.GetDLQMessagesResponse\x12I\n" +
 	"\x0eRequeueMessage\x12\x1a.dlq.RequeueMessageRequest\x1a\x1b.dlq.RequeueMessageResponse\x12O\n" +
-	"\x10DeleteDLQMessage\x12\x1c.dlq.DeleteDLQMessageRequest\x1a\x1d.dlq.DeleteDLQMessageResponseB4Z2github.com/alexnthnz/webhook/proto/generated/protob\x06proto3"
+	"\x10DeleteDLQMessage\x12\x1c.dlq.DeleteDLQMessageRequest\x1a\x1d.dlq.DeleteDLQMessageResponseB.Z,github.com/alexnthnz/webhook/proto/generatedb\x06proto3"
 
 var (
 	file_proto_dlq_proto_rawDescOnce sync.Once

@@ -15,7 +15,7 @@ import (
 
 	"github.com/alexnthnz/webhook/config"
 	"github.com/alexnthnz/webhook/internal/security"
-	pb "github.com/alexnthnz/webhook/proto/generated/proto"
+	pb "github.com/alexnthnz/webhook/proto/generated"
 )
 
 // Service implements the API Gateway HTTP service

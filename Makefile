@@ -4,9 +4,12 @@
 proto-gen:
 	@echo "Generating protobuf code..."
 	@mkdir -p proto/generated
-	@protoc --go_out=proto/generated --go_opt=paths=source_relative \
-		--go-grpc_out=proto/generated --go-grpc_opt=paths=source_relative \
-		proto/*.proto
+	@protoc --go_out=. --go-grpc_out=. proto/*.proto
+	@if [ -d "github.com/alexnthnz/webhook/proto/generated" ]; then \
+		mv github.com/alexnthnz/webhook/proto/generated/* proto/generated/; \
+		rm -rf github.com; \
+	fi
+	@rm -rf proto/generated/proto
 	@echo "Protobuf generation complete"
 
 proto-clean:

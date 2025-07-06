@@ -168,7 +168,7 @@ func (p *Producer) Produce(topic string, key []byte, value []byte, headers map[s
 	message := &kafka.Message{
 		TopicPartition: kafka.TopicPartition{
 			Topic:     &topic,
-			Partition: kafka.PartitionAny,
+			Partition: -1,
 		},
 		Key:     key,
 		Value:   value,
@@ -191,7 +191,7 @@ func (p *Producer) ProduceSync(topic string, key []byte, value []byte, headers m
 	message := &kafka.Message{
 		TopicPartition: kafka.TopicPartition{
 			Topic:     &topic,
-			Partition: kafka.PartitionAny,
+			Partition: -1,
 		},
 		Key:     key,
 		Value:   value,

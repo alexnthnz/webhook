@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package dlq;
 
-option go_package = "github.com/alexnthnz/webhook/proto/generated/proto";
+option go_package = "github.com/alexnthnz/webhook/proto/generated";
 
 import "google/protobuf/timestamp.proto";
 

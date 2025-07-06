@@ -19,7 +19,7 @@ import (
 	"github.com/alexnthnz/webhook/internal/retry"
 	"github.com/alexnthnz/webhook/pkg/kafka"
 	"github.com/alexnthnz/webhook/pkg/redis"
-	pb "github.com/alexnthnz/webhook/proto/generated/proto"
+	pb "github.com/alexnthnz/webhook/proto/generated"
 )
 
 func main() {

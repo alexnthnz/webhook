@@ -13,7 +13,7 @@ import (
 
 	"github.com/alexnthnz/webhook/pkg/kafka"
 	"github.com/alexnthnz/webhook/pkg/postgres"
-	pb "github.com/alexnthnz/webhook/proto/generated/proto"
+	pb "github.com/alexnthnz/webhook/proto/generated"
 )
 
 // DLQMessage represents a message in the dead letter queue

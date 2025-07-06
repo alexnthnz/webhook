@@ -4,7 +4,7 @@
 // - protoc             v5.29.3
 // source: proto/dlq.proto
 
-package proto
+package generated
 
 import (
 	context "context"

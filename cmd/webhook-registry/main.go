@@ -18,7 +18,7 @@ import (
 	"github.com/alexnthnz/webhook/config"
 	"github.com/alexnthnz/webhook/internal/registry"
 	"github.com/alexnthnz/webhook/pkg/postgres"
-	pb "github.com/alexnthnz/webhook/proto/generated/proto"
+	pb "github.com/alexnthnz/webhook/proto/generated"
 )
 
 func main() {
