@@ -22,6 +22,7 @@ type Config struct {
 	Dispatcher      DispatcherConfig      `yaml:"dispatcher"`
 	RetryManager    RetryManagerConfig    `yaml:"retry_manager"`
 	Observability   ObservabilityConfig   `yaml:"observability"`
+	DLQ             DLQConfig             `yaml:"dlq"`
 
 	// Infrastructure configurations
 	Database DatabaseConfig `yaml:"database"`
@@ -136,6 +137,13 @@ type ObservabilityConfig struct {
 	// Logging configuration
 	LogRetentionDays int    `yaml:"log_retention_days" envconfig:"LOG_RETENTION_DAYS"`
 	LogLevel         string `yaml:"log_level" envconfig:"LOG_LEVEL"`
+}
+
+// DLQConfig holds Dead Letter Queue service configuration
+type DLQConfig struct {
+	Port  int    `yaml:"port" envconfig:"DLQ_PORT"`
+	Host  string `yaml:"host" envconfig:"DLQ_HOST"`
+	Topic string `yaml:"topic" envconfig:"DLQ_TOPIC"`
 }
 
 // DatabaseConfig holds PostgreSQL configuration
@@ -333,6 +341,17 @@ func loadFromEnv(config *Config) error {
 		config.Kafka.Brokers = strings.Split(val, ",")
 	}
 
+	// Security configuration
+	if val := os.Getenv("JWT_SECRET"); val != "" {
+		config.Security.JWTSecret = val
+	}
+	if val := os.Getenv("HMAC_SECRET"); val != "" {
+		config.Security.HMACSecret = val
+	}
+	if val := os.Getenv("OAUTH2_CLIENT_SECRET"); val != "" {
+		config.Security.OAuth2ClientSecret = val
+	}
+
 	return nil
 }
 
@@ -450,6 +469,11 @@ func validateConfig(config *Config) error {
 }
 
 // DefaultConfig returns a default configuration
+// Load loads configuration from file and environment variables
+func Load() (*Config, error) {
+	return LoadConfig("config.yaml")
+}
+
 func DefaultConfig() *Config {
 	config := &Config{}
 	setDefaults(config)

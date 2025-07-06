@@ -90,6 +90,13 @@ USER webhook
 EXPOSE 8084 9091
 CMD ["./observability"]
 
+# DLQ service
+FROM base AS dlq
+COPY --from=builder /app/bin/dlq .
+USER webhook
+EXPOSE 8087
+CMD ["./dlq"]
+
 # Development image with all services
 FROM base AS development
 COPY --from=builder /app/bin/ ./bin/

@@ -17,8 +17,9 @@ import (
 
 	"github.com/alexnthnz/webhook/config"
 	"github.com/alexnthnz/webhook/internal/retry"
+	"github.com/alexnthnz/webhook/pkg/kafka"
 	"github.com/alexnthnz/webhook/pkg/redis"
-	pb "github.com/alexnthnz/webhook/proto/generated/proto"
+	pb "github.com/alexnthnz/webhook/proto/generated"
 )
 
 func main() {
@@ -140,42 +141,34 @@ func main() {
 
 // startRetryProcessor starts the background retry processor
 func startRetryProcessor(service *retry.Service, cfg config.RetryManagerConfig, log *logrus.Logger) {
-	ticker := time.NewTicker(cfg.ProcessInterval)
-	defer ticker.Stop()
-
-	log.Info("Starting retry processor")
-
-	for {
-		select {
-		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-
-			// Get due retries
-			dueRetries, err := service.GetDueRetries(ctx, cfg.BatchSize)
-			if err != nil {
-				log.WithError(err).Error("Failed to get due retries")
-				cancel()
-				continue
-			}
-
-			if len(dueRetries) > 0 {
-				log.WithField("count", len(dueRetries)).Info("Processing due retries")
-
-				// In a real implementation, you would send these retries to the webhook dispatcher
-				// For now, we'll just log them
-				for _, retry := range dueRetries {
-					log.WithFields(logrus.Fields{
-						"retry_id":   retry.RetryID,
-						"event_id":   retry.EventID,
-						"webhook_id": retry.WebhookID,
-						"attempt":    retry.AttemptNumber,
-					}).Info("Retry due for processing")
-				}
-			}
-
-			cancel()
-		}
+	// Initialize Kafka producer for retry processor
+	kafkaConfig := kafka.ProducerConfig{
+		Brokers:           "kafka-kraft:29092",
+		ClientID:          "retry-processor",
+		CompressionType:   "snappy",
+		BatchSize:         16384,
+		LingerMs:          10,
+		RetryBackoffMs:    100,
+		MaxRetries:        3,
+		RequestTimeoutMs:  30000,
+		MessageTimeoutMs:  300000,
+		Acks:              "all",
+		EnableIdempotence: true,
 	}
+
+	producer, err := kafka.NewProducer(kafkaConfig, log)
+	if err != nil {
+		log.WithError(err).Error("Failed to create Kafka producer for retry processor")
+		return
+	}
+	defer producer.Close()
+
+	// Create retry processor
+	processor := retry.NewProcessor(service, producer, cfg, log)
+
+	// Start processor
+	ctx := context.Background()
+	processor.Start(ctx)
 }
 
 // loggingInterceptor logs gRPC requests

@@ -14,7 +14,7 @@ import (
 
 	"github.com/alexnthnz/webhook/pkg/metrics"
 	"github.com/alexnthnz/webhook/pkg/postgres"
-	pb "github.com/alexnthnz/webhook/proto/generated/proto"
+	pb "github.com/alexnthnz/webhook/proto/generated"
 )
 
 // Service implements the ObservabilityService gRPC service

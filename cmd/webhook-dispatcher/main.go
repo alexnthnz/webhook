@@ -19,9 +19,10 @@ import (
 
 	"github.com/alexnthnz/webhook/config"
 	"github.com/alexnthnz/webhook/internal/security"
+	"github.com/alexnthnz/webhook/pkg/circuitbreaker"
 	kafkapkg "github.com/alexnthnz/webhook/pkg/kafka"
 	"github.com/alexnthnz/webhook/pkg/metrics"
-	pb "github.com/alexnthnz/webhook/proto/generated/proto"
+	pb "github.com/alexnthnz/webhook/proto/generated"
 )
 
 type WebhookDispatcherService struct {
@@ -34,6 +35,7 @@ type WebhookDispatcherService struct {
 	observabilityClient   pb.ObservabilityServiceClient
 	httpClient            *http.Client
 	hmacSigner            *security.HMACSigner
+	circuitBreakerManager *circuitbreaker.Manager
 	wg                    sync.WaitGroup
 }
 
@@ -141,6 +143,9 @@ func main() {
 	// Initialize HMAC signer
 	hmacSigner := security.NewHMACSignerFromSecret(cfg.Security.HMACSecret)
 
+	// Initialize circuit breaker manager
+	circuitBreakerManager := circuitbreaker.NewManager(log)
+
 	// Initialize service
 	service := &WebhookDispatcherService{
 		config:                cfg,
@@ -152,6 +157,7 @@ func main() {
 		observabilityClient:   pb.NewObservabilityServiceClient(observabilityConn),
 		httpClient:            httpClient,
 		hmacSigner:            hmacSigner,
+		circuitBreakerManager: circuitBreakerManager,
 	}
 
 	// Start workers
@@ -250,15 +256,64 @@ func (s *WebhookDispatcherService) processMessage(msg *kafka.Message) error {
 	return nil
 }
 
-func (s *WebhookDispatcherService) dispatchWebhook(event Event, webhook *pb.Webhook) error {
+func (s *WebhookDispatcherService) dispatchWebhook(event Event, webhook interface{}) error {
+	// Type assertion for webhook (to work around protobuf import issues)
+	webhookMap, ok := webhook.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid webhook type")
+	}
+
+	webhookID := webhookMap["webhook_id"].(string)
+	customerID := webhookMap["customer_id"].(string)
+	webhookURL := webhookMap["url"].(string)
+	headers := webhookMap["headers"].(map[string]string)
+
+	// Get or create circuit breaker for this webhook
+	cbName := fmt.Sprintf("webhook-%s", webhookID)
+	cb := s.circuitBreakerManager.GetOrCreate(cbName, circuitbreaker.WebhookConfig(cbName))
+
 	// Prepare payload
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
+	// Execute webhook call through circuit breaker
+	start := time.Now()
+	err = cb.Execute(func() error {
+		return s.executeWebhookCall(webhookURL, webhookID, customerID, headers, payload, event)
+	})
+	duration := time.Since(start)
+
+	// Record metrics
+	s.metrics.DeliveryLatency.WithLabelValues(webhookID, customerID, event.Type).Observe(duration.Seconds())
+	s.metrics.DeliveryAttempts.WithLabelValues(webhookID, customerID, event.Type).Inc()
+
+	// Handle circuit breaker errors
+	if err == circuitbreaker.ErrOpenState {
+		s.metrics.DeliveryFailures.WithLabelValues(webhookID, customerID, event.Type, "circuit_breaker_open").Inc()
+		s.logger.WithFields(logrus.Fields{
+			"webhook_id": webhookID,
+			"event_id":   event.ID,
+			"error":      "circuit breaker open",
+		}).Warn("Webhook delivery blocked by circuit breaker")
+		return fmt.Errorf("circuit breaker is open for webhook %s", webhookID)
+	} else if err == circuitbreaker.ErrTooManyRequests {
+		s.metrics.DeliveryFailures.WithLabelValues(webhookID, customerID, event.Type, "circuit_breaker_throttled").Inc()
+		s.logger.WithFields(logrus.Fields{
+			"webhook_id": webhookID,
+			"event_id":   event.ID,
+			"error":      "too many requests",
+		}).Warn("Webhook delivery throttled by circuit breaker")
+		return fmt.Errorf("too many requests for webhook %s", webhookID)
+	}
+
+	return err
+}
+
+func (s *WebhookDispatcherService) executeWebhookCall(webhookURL, webhookID, customerID string, headers map[string]string, payload []byte, event Event) error {
 	// Create HTTP request
-	req, err := http.NewRequest("POST", webhook.Url, bytes.NewReader(payload))
+	req, err := http.NewRequest("POST", webhookURL, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -266,14 +321,14 @@ func (s *WebhookDispatcherService) dispatchWebhook(event Event, webhook *pb.Webh
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "webhook-dispatcher/1.0")
-	req.Header.Set("X-Webhook-ID", webhook.WebhookId)
+	req.Header.Set("X-Webhook-ID", webhookID)
 	req.Header.Set("X-Event-ID", event.ID)
 	req.Header.Set("X-Event-Type", event.Type)
 	req.Header.Set("X-Timestamp", event.Timestamp.Format(time.RFC3339))
 
 	// Add custom headers
-	if webhook.Headers != nil && len(webhook.Headers) > 0 {
-		for k, v := range webhook.Headers {
+	if headers != nil && len(headers) > 0 {
+		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
 	}
@@ -283,33 +338,25 @@ func (s *WebhookDispatcherService) dispatchWebhook(event Event, webhook *pb.Webh
 	req.Header.Set("X-Webhook-Signature", signature)
 
 	// Send request
-	start := time.Now()
 	resp, err := s.httpClient.Do(req)
-	duration := time.Since(start)
-
-	// Record metrics
-	s.metrics.DeliveryLatency.WithLabelValues(webhook.WebhookId, webhook.CustomerId, event.Type).Observe(duration.Seconds())
-	s.metrics.DeliveryAttempts.WithLabelValues(webhook.WebhookId, webhook.CustomerId, event.Type).Inc()
-
 	if err != nil {
-		s.metrics.DeliveryFailures.WithLabelValues(webhook.WebhookId, webhook.CustomerId, event.Type, "network_error").Inc()
+		s.metrics.DeliveryFailures.WithLabelValues(webhookID, customerID, event.Type, "network_error").Inc()
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check response status
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		s.metrics.DeliverySuccess.WithLabelValues(webhook.WebhookId, webhook.CustomerId, event.Type, fmt.Sprintf("%d", resp.StatusCode)).Inc()
+		s.metrics.DeliverySuccess.WithLabelValues(webhookID, customerID, event.Type, fmt.Sprintf("%d", resp.StatusCode)).Inc()
 		s.logger.WithFields(logrus.Fields{
-			"webhook_id":  webhook.WebhookId,
+			"webhook_id":  webhookID,
 			"event_id":    event.ID,
 			"status_code": resp.StatusCode,
-			"duration":    duration,
 		}).Info("Webhook delivered successfully")
 		return nil
 	}
 
-	s.metrics.DeliveryFailures.WithLabelValues(webhook.WebhookId, webhook.CustomerId, event.Type, "http_error").Inc()
+	s.metrics.DeliveryFailures.WithLabelValues(webhookID, customerID, event.Type, "http_error").Inc()
 	return fmt.Errorf("webhook returned status %d", resp.StatusCode)
 }
 

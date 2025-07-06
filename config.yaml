@@ -85,6 +85,12 @@ observability:
   log_retention_days: 30
   log_level: info
 
+# Dead Letter Queue Configuration
+dlq:
+  port: 8087
+  host: "0.0.0.0"
+  topic: "webhook-dlq"
+
 # Database Configuration
 database:
   host: postgres
@@ -135,11 +141,11 @@ security:
   oauth2_issuer: ""
   oauth2_client_id: ""
   oauth2_client_secret: ""
-  jwt_secret: "your-secret-key-here"
+  jwt_secret: "${JWT_SECRET:-generate-secure-secret-in-production}"
   jwt_expiration: 3600s
   jwt_issuer: "webhook-service"
   jwt_audience: "webhook-api"
-  hmac_secret: "your-hmac-secret-here"
+  hmac_secret: "${HMAC_SECRET:-generate-secure-hmac-secret-in-production}"
   tls_enabled: false
   tls_cert_file: ""
   tls_key_file: ""
