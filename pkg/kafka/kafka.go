@@ -40,9 +40,7 @@ type ConsumerConfig struct {
 	EnableAutoCommit    bool
 	SessionTimeoutMs    int
 	HeartbeatIntervalMs int
-	MaxPollRecords      int
 	FetchMinBytes       int
-	FetchMaxWaitMs      int
 }
 
 // Producer wraps kafka.Producer with additional functionality
@@ -103,9 +101,7 @@ func NewConsumer(cfg ConsumerConfig, logger *logrus.Logger) (*Consumer, error) {
 		"enable.auto.commit":    cfg.EnableAutoCommit,
 		"session.timeout.ms":    cfg.SessionTimeoutMs,
 		"heartbeat.interval.ms": cfg.HeartbeatIntervalMs,
-		"max.poll.records":      cfg.MaxPollRecords,
 		"fetch.min.bytes":       cfg.FetchMinBytes,
-		"fetch.max.wait.ms":     cfg.FetchMaxWaitMs,
 	}
 
 	if cfg.SecurityProtocol != "" {
@@ -301,8 +297,6 @@ func DefaultConsumerConfig() ConsumerConfig {
 		EnableAutoCommit:    false,
 		SessionTimeoutMs:    30000,
 		HeartbeatIntervalMs: 3000,
-		MaxPollRecords:      500,
 		FetchMinBytes:       1,
-		FetchMaxWaitMs:      500,
 	}
 }

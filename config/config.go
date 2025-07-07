@@ -213,9 +213,7 @@ type KafkaConsumerConfig struct {
 	EnableAutoCommit    bool   `yaml:"enable_auto_commit" envconfig:"KAFKA_ENABLE_AUTO_COMMIT"`
 	SessionTimeoutMs    int    `yaml:"session_timeout_ms" envconfig:"KAFKA_SESSION_TIMEOUT_MS"`
 	HeartbeatIntervalMs int    `yaml:"heartbeat_interval_ms" envconfig:"KAFKA_HEARTBEAT_INTERVAL_MS"`
-	MaxPollRecords      int    `yaml:"max_poll_records" envconfig:"KAFKA_MAX_POLL_RECORDS"`
 	FetchMinBytes       int    `yaml:"fetch_min_bytes" envconfig:"KAFKA_FETCH_MIN_BYTES"`
-	FetchMaxWaitMs      int    `yaml:"fetch_max_wait_ms" envconfig:"KAFKA_FETCH_MAX_WAIT_MS"`
 
 	// Topics
 	EventsTopic string `yaml:"events_topic" envconfig:"KAFKA_EVENTS_TOPIC"`

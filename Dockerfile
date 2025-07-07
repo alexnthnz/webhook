@@ -1,10 +1,17 @@
 # Multi-stage Dockerfile for Webhook Service
 
-# Build stage
-FROM golang:1.22.4-alpine AS builder
+# Build stage - use debian-based image for better C library compatibility
+FROM golang:1.23.0-bullseye AS builder
 
 # Install dependencies
-RUN apk add --no-cache git protobuf protobuf-dev
+RUN apt-get update && apt-get install -y \
+    git \
+    protobuf-compiler \
+    libprotobuf-dev \
+    make \
+    build-essential \
+    librdkafka-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -25,22 +32,28 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
     make proto-gen
 
 # Build all services
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/api-gateway ./cmd/api-gateway && \
-    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/webhook-registry ./cmd/webhook-registry && \
-    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/event-ingestion ./cmd/event-ingestion && \
-    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/webhook-dispatcher ./cmd/webhook-dispatcher && \
-    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/retry-manager ./cmd/retry-manager && \
-    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/observability ./cmd/observability
+RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/api-gateway ./cmd/api-gateway && \
+    CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/webhook-registry ./cmd/webhook-registry && \
+    CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/event-ingestion ./cmd/event-ingestion && \
+    CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/webhook-dispatcher ./cmd/webhook-dispatcher && \
+    CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/retry-manager ./cmd/retry-manager && \
+    CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/observability ./cmd/observability && \
+    CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/dlq ./cmd/dlq
 
-# Base runtime image
-FROM alpine:3.18 AS base
+# Base runtime image - use debian slim for better C library compatibility
+FROM debian:bullseye-slim AS base
 
-# Install ca-certificates for HTTPS requests
-RUN apk --no-cache add ca-certificates tzdata
+# Install ca-certificates for HTTPS requests and librdkafka runtime
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    tzdata \
+    librdkafka1 \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup -g 1001 webhook && \
-    adduser -D -s /bin/sh -u 1001 -G webhook webhook
+RUN groupadd -g 1001 webhook && \
+    useradd -m -s /bin/bash -u 1001 -g webhook webhook
 
 # Create app directory
 WORKDIR /app
@@ -48,6 +61,7 @@ WORKDIR /app
 # Copy configuration files
 COPY config/ ./config/
 COPY migrations/ ./migrations/
+COPY config.yaml .
 
 # API Gateway service
 FROM base AS api-gateway
@@ -60,7 +74,7 @@ CMD ["./api-gateway"]
 FROM base AS webhook-registry
 COPY --from=builder /app/bin/webhook-registry .
 USER webhook
-EXPOSE 8081
+EXPOSE 8086
 CMD ["./webhook-registry"]
 
 # Event Ingestion service

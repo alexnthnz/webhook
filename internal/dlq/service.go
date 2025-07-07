@@ -96,7 +96,7 @@ func (s *Service) SendToDLQ(ctx context.Context, req *pb.SendToDLQRequest) (*pb.
 	}
 
 	// Store in database for querying and management
-	err = s.storeDLQRecord(ctx, dlqMessage)
+	err = s.StoreDLQRecord(ctx, dlqMessage)
 	if err != nil {
 		s.log.WithError(err).Error("Failed to store DLQ record in database")
 		// Don't fail the request if DB storage fails, as message is already in Kafka
@@ -206,8 +206,8 @@ func (s *Service) DeleteDLQMessage(ctx context.Context, req *pb.DeleteDLQMessage
 	}, nil
 }
 
-// storeDLQRecord stores DLQ message in database
-func (s *Service) storeDLQRecord(ctx context.Context, message DLQMessage) error {
+// StoreDLQRecord stores DLQ message in database (public method for internal use)
+func (s *Service) StoreDLQRecord(ctx context.Context, message DLQMessage) error {
 	query := `
 		INSERT INTO dlq_messages (
 			event_id, webhook_id, customer_id, event_type, original_event,

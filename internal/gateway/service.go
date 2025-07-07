@@ -15,6 +15,7 @@ import (
 
 	"github.com/alexnthnz/webhook/config"
 	"github.com/alexnthnz/webhook/internal/security"
+	grpcpkg "github.com/alexnthnz/webhook/pkg/grpc"
 	pb "github.com/alexnthnz/webhook/proto/generated"
 )
 
@@ -26,19 +27,34 @@ type Service struct {
 	observabilityClient pb.ObservabilityServiceClient
 	auth                *security.AuthMiddleware
 	jwtManager          *security.JWTManager
+	rateLimiter         *security.HTTPRateLimiter
 	server              *http.Server
 }
 
 // NewService creates a new API Gateway service
 func NewService(cfg config.APIGatewayConfig, securityCfg config.SecurityConfig, logger *logrus.Logger) (*Service, error) {
-	// Connect to webhook registry
-	webhookConn, err := grpc.Dial(cfg.WebhookRegistryAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Configure retry settings
+	retryConfig := grpcpkg.DefaultRetryConfig()
+	retryConfig.MaxRetries = 3
+	retryConfig.Backoff = 200 * time.Millisecond
+	retryConfig.MaxBackoff = 2 * time.Second
+
+	// Connect to webhook registry with retry
+	webhookConn, err := grpc.Dial(
+		cfg.WebhookRegistryAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpcpkg.WithRetry(retryConfig, logger),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to webhook registry: %w", err)
 	}
 
-	// Connect to observability service
-	obsConn, err := grpc.Dial(cfg.ObservabilityAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Connect to observability service with retry
+	obsConn, err := grpc.Dial(
+		cfg.ObservabilityAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpcpkg.WithRetry(retryConfig, logger),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to observability service: %w", err)
 	}
@@ -54,6 +70,12 @@ func NewService(cfg config.APIGatewayConfig, securityCfg config.SecurityConfig, 
 	// Initialize auth middleware
 	authMiddleware := security.NewAuthMiddleware(jwtManager, nil, []string{"/health", "/auth/login"})
 
+	// Initialize rate limiter
+	rateLimitConfig := security.DefaultRateLimitConfig()
+	rateLimitConfig.DefaultRPS = 100 // 100 requests per second
+	rateLimitConfig.DefaultBurst = 200
+	rateLimiter := security.NewHTTPRateLimiter(rateLimitConfig, logger)
+
 	service := &Service{
 		config:              cfg,
 		log:                 logger,
@@ -61,6 +83,7 @@ func NewService(cfg config.APIGatewayConfig, securityCfg config.SecurityConfig, 
 		observabilityClient: pb.NewObservabilityServiceClient(obsConn),
 		auth:                authMiddleware,
 		jwtManager:          jwtManager,
+		rateLimiter:         rateLimiter,
 	}
 
 	return service, nil
@@ -94,6 +117,9 @@ func (s *Service) setupRoutes() *mux.Router {
 
 	// Add logging middleware
 	router.Use(s.loggingMiddleware)
+
+	// Add rate limiting middleware
+	router.Use(security.HTTPRateLimitMiddleware(s.rateLimiter, s.log))
 
 	// Add CORS middleware if enabled
 	if s.config.CORSEnabled {

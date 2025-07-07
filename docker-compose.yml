@@ -173,8 +173,8 @@ services:
       REDIS_ADDRESS: redis:6379
       REDIS_PASSWORD: redis123
       KAFKA_BROKERS: kafka-kraft:29092
-      WEBHOOK_REGISTRY_ADDR: webhook-registry:8081
-      OBSERVABILITY_ADDR: observability:8084
+      WEBHOOK_REGISTRY_ADDR: webhook-registry:8086
+      OBSERVABILITY_ADDR: observability:8085
     depends_on:
       - postgres
       - redis
@@ -190,7 +190,7 @@ services:
       target: webhook-registry
     container_name: webhook-webhook-registry
     ports:
-      - "8081:8081"
+      - "8086:8086"
     environment:
       ENVIRONMENT: development
       LOG_LEVEL: info
@@ -236,9 +236,9 @@ services:
       ENVIRONMENT: development
       LOG_LEVEL: info
       KAFKA_BROKERS: kafka-kraft:29092
-      WEBHOOK_REGISTRY_ADDR: webhook-registry:8081
-      RETRY_MANAGER_ADDR: retry-manager:8083
-      OBSERVABILITY_ADDR: observability:8084
+      WEBHOOK_REGISTRY_ADDR: webhook-registry:8086
+      RETRY_MANAGER_ADDR: retry-manager:8084
+      OBSERVABILITY_ADDR: observability:8085
     depends_on:
       - kafka-kraft
       - webhook-registry
@@ -254,7 +254,7 @@ services:
       target: retry-manager
     container_name: webhook-retry-manager
     ports:
-      - "8083:8083"
+      - "8084:8084"
     environment:
       ENVIRONMENT: development
       LOG_LEVEL: info
@@ -272,7 +272,7 @@ services:
       target: observability
     container_name: webhook-observability
     ports:
-      - "8084:8084"
+      - "8085:8085"
       - "9091:9091"  # Metrics endpoint
     environment:
       ENVIRONMENT: development

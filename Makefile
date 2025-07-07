@@ -4,7 +4,7 @@
 proto-gen:
 	@echo "Generating protobuf code..."
 	@mkdir -p proto/generated
-	@protoc --go_out=. --go-grpc_out=. proto/*.proto
+	@protoc --experimental_allow_proto3_optional --go_out=. --go-grpc_out=. proto/*.proto
 	@if [ -d "github.com/alexnthnz/webhook/proto/generated" ]; then \
 		mv github.com/alexnthnz/webhook/proto/generated/* proto/generated/; \
 		rm -rf github.com; \
