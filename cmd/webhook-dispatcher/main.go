@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"math/rand/v2"
+	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +24,7 @@ import (
 
 	"github.com/alexnthnz/webhook/config"
 	"github.com/alexnthnz/webhook/internal/security"
+	"github.com/alexnthnz/webhook/pkg/avro"
 	"github.com/alexnthnz/webhook/pkg/circuitbreaker"
 	kafkapkg "github.com/alexnthnz/webhook/pkg/kafka"
 	"github.com/alexnthnz/webhook/pkg/metrics"
@@ -39,38 +42,35 @@ type WebhookDispatcherService struct {
 	httpClient            *http.Client
 	hmacSigner            *security.HMACSigner
 	circuitBreakerManager *circuitbreaker.Manager
+	avroDeserializer      *avro.Serializer
+	webhookConfigSchema   string
 	wg                    sync.WaitGroup
 }
 
+type EventData struct {
+	UserID int64  `json:"user_id"`
+	Name   string `json:"name"`
+}
+
 type Event struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`
-	Source    string                 `json:"source"`
-	Data      map[string]interface{} `json:"data"`
-	Timestamp time.Time              `json:"timestamp"`
+	ID        string    `json:"id"`
+	Type      string    `json:"type"`
+	Source    string    `json:"source"`
+	Data      EventData `json:"data"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 func main() {
-	// Initialize logger
-	log := logrus.New()
-	log.SetFormatter(&logrus.JSONFormatter{})
-	log.SetLevel(logrus.InfoLevel)
-
 	// Load configuration
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.Load()
 	if err != nil {
-		log.WithError(err).Fatal("Failed to load configuration")
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Set log level from config
-	level, err := logrus.ParseLevel(cfg.LogLevel)
-	if err != nil {
-		log.WithError(err).Warn("Invalid log level, using info")
-		level = logrus.InfoLevel
-	}
-	log.SetLevel(level)
-
-	log.Info("Starting Webhook Dispatcher Service")
+	// Setup logging
+	log := logrus.New()
+	log.SetLevel(logrus.InfoLevel)
+	log.SetFormatter(&logrus.JSONFormatter{})
 
 	// Initialize metrics
 	metricsConfig := metrics.Config{
@@ -99,31 +99,34 @@ func main() {
 
 	// Subscribe to events topic
 	if err := consumer.Subscribe([]string{cfg.Dispatcher.Kafka.EventsTopic}); err != nil {
-		log.WithError(err).Fatal("Failed to subscribe to Kafka topic")
+		log.WithError(err).Fatal("Failed to subscribe to events topic")
 	}
 
-	// Initialize gRPC clients
-	webhookRegistryConn, err := grpc.NewClient(
+	// Initialize gRPC connections
+	webhookRegistryConn, err := grpc.Dial(
 		cfg.Dispatcher.WebhookRegistryAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
 	)
 	if err != nil {
 		log.WithError(err).Fatal("Failed to connect to webhook registry")
 	}
 	defer webhookRegistryConn.Close()
 
-	retryManagerConn, err := grpc.NewClient(
+	retryManagerConn, err := grpc.Dial(
 		cfg.Dispatcher.RetryManagerAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
 	)
 	if err != nil {
 		log.WithError(err).Fatal("Failed to connect to retry manager")
 	}
 	defer retryManagerConn.Close()
 
-	observabilityConn, err := grpc.NewClient(
+	observabilityConn, err := grpc.Dial(
 		cfg.Dispatcher.ObservabilityAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
 	)
 	if err != nil {
 		log.WithError(err).Fatal("Failed to connect to observability service")
@@ -134,10 +137,12 @@ func main() {
 	httpClient := &http.Client{
 		Timeout: cfg.Dispatcher.HTTPTimeout,
 		Transport: &http.Transport{
-			MaxConnsPerHost:     cfg.Dispatcher.HTTPMaxConnsPerHost,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, // For development
+			},
 			MaxIdleConns:        cfg.Dispatcher.HTTPMaxIdleConns,
+			MaxIdleConnsPerHost: cfg.Dispatcher.HTTPMaxConnsPerHost,
 			IdleConnTimeout:     90 * time.Second,
-			TLSHandshakeTimeout: 10 * time.Second,
 		},
 	}
 
@@ -146,6 +151,20 @@ func main() {
 
 	// Initialize circuit breaker manager
 	circuitBreakerManager := circuitbreaker.NewManager(log)
+
+	// Initialize avro deserializer with Schema Registry
+	avroDeserializer := avro.NewSerializer("http://schema-registry:8081")
+
+	// Load webhook configuration schema from file
+	webhookConfigSchemaBytes, err := os.ReadFile("schemas/webhook.avsc")
+	if err != nil {
+		log.WithError(err).Fatal("Failed to read webhook configuration schema file")
+	}
+
+	// Load schemas into deserializer
+	if err := avroDeserializer.LoadSchema("webhook-events", "schemas/event.avsc"); err != nil {
+		log.WithError(err).Fatal("Failed to load event schema")
+	}
 
 	// Initialize service
 	service := &WebhookDispatcherService{
@@ -159,6 +178,8 @@ func main() {
 		httpClient:            httpClient,
 		hmacSigner:            hmacSigner,
 		circuitBreakerManager: circuitBreakerManager,
+		avroDeserializer:      avroDeserializer,
+		webhookConfigSchema:   string(webhookConfigSchemaBytes),
 	}
 
 	// Start workers
@@ -216,10 +237,23 @@ func (s *WebhookDispatcherService) worker(workerID int) {
 }
 
 func (s *WebhookDispatcherService) processMessage(msg *kafka.Message) error {
-	// Parse event
-	var event Event
-	if err := json.Unmarshal(msg.Value, &event); err != nil {
-		return fmt.Errorf("failed to unmarshal event: %w", err)
+	// Deserialize event using Avro
+	eventMap, err := s.avroDeserializer.Deserialize(msg.Value)
+	if err != nil {
+		return fmt.Errorf("failed to deserialize event with Avro: %w", err)
+	}
+
+	// Convert map to Event struct
+	dataMap := eventMap["data"].(map[string]interface{})
+	event := Event{
+		ID:     eventMap["id"].(string),
+		Type:   eventMap["type"].(string),
+		Source: eventMap["source"].(string),
+		Data: EventData{
+			UserID: dataMap["user_id"].(int64),
+			Name:   dataMap["name"].(string),
+		},
+		Timestamp: time.UnixMilli(getTimestampValue(eventMap["timestamp"])),
 	}
 
 	s.logger.WithFields(logrus.Fields{
@@ -258,6 +292,14 @@ func (s *WebhookDispatcherService) processMessage(msg *kafka.Message) error {
 }
 
 func (s *WebhookDispatcherService) dispatchWebhook(event Event, webhook *pb.Webhook) error {
+	// Validate webhook configuration against schema
+	if err := s.validateWebhookConfig(webhook); err != nil {
+		s.logger.WithError(err).WithFields(logrus.Fields{
+			"webhook_id": webhook.WebhookId,
+		}).Error("Invalid webhook configuration")
+		return fmt.Errorf("invalid webhook configuration: %w", err)
+	}
+
 	webhookID := webhook.WebhookId
 	customerID := webhook.CustomerId
 	webhookURL := webhook.Url
@@ -514,5 +556,41 @@ func (s *WebhookDispatcherService) recordDeliveryEvent(eventID, webhookID, custo
 			"event_id":   eventID,
 			"webhook_id": webhookID,
 		}).Error("Failed to record delivery event to observability service")
+	}
+}
+
+// validateWebhookConfig validates a webhook configuration against the Avro schema
+func (s *WebhookDispatcherService) validateWebhookConfig(webhook *pb.Webhook) error {
+	// Convert webhook to map for validation
+	webhookMap := map[string]interface{}{
+		"id":          webhook.WebhookId,
+		"customer_id": webhook.CustomerId,
+		"url":         webhook.Url,
+		"event_types": webhook.EventTypes,
+		"secret":      webhook.Secret,
+		"headers":     webhook.Headers,
+		"active":      true, // Assume active if not specified
+		"retry_policy": map[string]interface{}{
+			"max_attempts":     3,
+			"backoff_type":     "exponential",
+			"initial_delay_ms": int64(1000),
+			"max_delay_ms":     int64(30000),
+			"multiplier":       2.0,
+		},
+		"version": 1,
+	}
+
+	// Validate against schema
+	return s.avroDeserializer.ValidateData(s.webhookConfigSchema, webhookMap)
+}
+
+func getTimestampValue(timestamp interface{}) int64 {
+	switch v := timestamp.(type) {
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	default:
+		panic("unsupported timestamp format")
 	}
 }

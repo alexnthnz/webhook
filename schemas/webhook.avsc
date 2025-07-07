@@ -1,0 +1,99 @@
+{
+  "type": "record",
+  "name": "WebhookConfig",
+  "namespace": "com.webhook.config",
+  "doc": "Schema for webhook configuration",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string",
+      "doc": "Unique identifier for the webhook"
+    },
+    {
+      "name": "customer_id",
+      "type": "string",
+      "doc": "Customer identifier"
+    },
+    {
+      "name": "url",
+      "type": "string",
+      "doc": "Webhook endpoint URL"
+    },
+    {
+      "name": "event_types",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "doc": "List of event types this webhook subscribes to"
+    },
+    {
+      "name": "secret",
+      "type": "string",
+      "doc": "HMAC secret for payload signing"
+    },
+    {
+      "name": "headers",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {},
+      "doc": "Custom headers to include in webhook requests"
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "default": true,
+      "doc": "Whether the webhook is active"
+    },
+    {
+      "name": "retry_policy",
+      "type": {
+        "type": "record",
+        "name": "RetryPolicy",
+        "fields": [
+          {
+            "name": "max_attempts",
+            "type": "int",
+            "default": 3
+          },
+          {
+            "name": "backoff_type",
+            "type": "string",
+            "default": "exponential"
+          },
+          {
+            "name": "initial_delay_ms",
+            "type": "long",
+            "default": 1000
+          },
+          {
+            "name": "max_delay_ms",
+            "type": "long",
+            "default": 30000
+          },
+          {
+            "name": "multiplier",
+            "type": "double",
+            "default": 2.0
+          }
+        ]
+      },
+      "default": {
+        "max_attempts": 3,
+        "backoff_type": "exponential",
+        "initial_delay_ms": 1000,
+        "max_delay_ms": 30000,
+        "multiplier": 2.0
+      },
+      "doc": "Retry policy configuration"
+    },
+    {
+      "name": "version",
+      "type": "int",
+      "default": 1,
+      "doc": "Schema version for evolution tracking"
+    }
+  ]
+} 

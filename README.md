@@ -1,42 +1,58 @@
 # Webhook Service System
 
-A comprehensive, production-ready webhook service system built in Go that can handle 1 billion events per day (~10k QPS). The system provides reliable webhook delivery with retry mechanisms, observability, and horizontal scaling capabilities.
+A comprehensive, production-ready webhook service system built in Go that can handle 1 billion events per day (~10k QPS). The system provides reliable webhook delivery with retry mechanisms, observability, horizontal scaling capabilities, and **Schema Registry integration for type-safe message serialization**.
 
 ## 🚀 Features
 
 - **High Performance**: Designed to handle 10,000+ requests per second
 - **Reliable Delivery**: Exponential backoff retry with dead letter queues
-- **Security**: OAuth2/JWT authentication, HMAC payload signing, rate limiting
+- **Security**: JWT authentication, HMAC payload signing, rate limiting
 - **Observability**: Comprehensive metrics with Prometheus, logs with Loki, dashboards with Grafana
 - **Scalability**: Microservices architecture with Kafka for event streaming
 - **Fault Tolerance**: Circuit breakers, health checks, graceful shutdowns
+- **Complete Delivery Logging**: All webhook delivery attempts are logged and queryable
+- **Schema Registry Integration**: Avro schema validation and evolution for type-safe messaging
+- **Schema Evolution**: Backward/forward compatibility with automatic schema validation
 
 ## 🏗️ Architecture
 
-The system consists of 6 microservices:
+The system consists of 9 microservices:
 
-1. **API Gateway** (Port 8080) - REST API with OAuth2 authentication
-2. **Webhook Registry** (Port 8081) - gRPC service for webhook CRUD operations
-3. **Event Ingestion** (Port 8082) - REST API for receiving events, publishes to Kafka
-4. **Webhook Dispatcher** (Port 8083) - Kafka consumer that sends HTTP requests to webhooks
+1. **API Gateway** (Port 8080) - REST API with JWT authentication and webhook management
+2. **Webhook Registry** (Port 8086) - gRPC service for webhook CRUD operations
+3. **Event Ingestion** (Port 8082) - REST API for receiving events, publishes to Kafka with Avro serialization
+4. **Webhook Dispatcher** - Kafka consumer that deserializes Avro messages and sends HTTP requests to webhooks
 5. **Retry Manager** (Port 8084) - Redis-based retry scheduling with exponential backoff
 6. **Observability** (Port 8085) - Metrics and logging aggregation service
+7. **Dead Letter Queue (DLQ)** (Port 8087) - Manages permanently failed webhook deliveries
+
 
 ### Infrastructure Components
 
-- **PostgreSQL**: Webhook configurations and delivery logs
-- **Redis**: Retry state management and caching
-- **Kafka**: Event streaming and message queuing
-- **Prometheus**: Metrics collection and alerting
-- **Grafana**: Metrics visualization and dashboards
-- **Loki**: Log aggregation and querying
+- **PostgreSQL** (Port 5432): Webhook configurations and delivery logs
+- **Redis** (Port 6379): Retry state management and caching
+- **Kafka** (Port 9092): Event streaming and message queuing
+
+- **Prometheus** (Port 9090): Metrics collection and alerting
+- **Grafana** (Port 3000): Metrics visualization and dashboards
+- **Loki** (Port 3100): Log aggregation and querying
+- **Kafka UI** (Port 8888): Kafka management interface
+
+### Schema Registry Features
+
+- **Avro Serialization**: Type-safe message serialization with schema validation
+- **Schema Evolution**: Backward and forward compatibility support
+- **Automatic Validation**: Runtime schema validation for all messages
+- **Schema Versioning**: Automatic version management and compatibility checking
+- **Schema Registry API**: REST API for schema management and validation
 
 ## 📋 Prerequisites
 
-- Go 1.22.4 or later
+- Go 1.23.0 or later
 - Docker and Docker Compose
 - Protocol Buffers compiler (protoc)
 - Make
+- jq (for schema initialization script)
 
 ## 🛠️ Quick Start
 
@@ -45,13 +61,12 @@ The system consists of 6 microservices:
 ```bash
 git clone <repository-url>
 cd webhook
-make dev-setup
 ```
 
-### 2. Start Infrastructure
+### 2. Start All Services
 
 ```bash
-docker-compose up -d postgres redis kafka-kraft schema-registry prometheus grafana loki
+docker-compose up -d
 ```
 
 Wait for services to be healthy:
@@ -60,43 +75,28 @@ Wait for services to be healthy:
 docker-compose ps
 ```
 
+
+
 ### 3. Run Database Migrations
 
 ```bash
-make migrate-up
+# Install migrate CLI if not already installed
+go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+# Start PostgreSQL container
+docker-compose up -d postgres
+
+# Create database
+docker-compose exec postgres psql -U postgres -c "CREATE DATABASE webhook_db;"
+
+# Run migrations
+migrate -path migrations -database "postgres://postgres:postgres123@localhost:5432/webhook_db?sslmode=disable" up
 ```
 
-### 4. Build Services
-
-```bash
-make build
-```
-
-### 5. Start Services
-
-```bash
-# Terminal 1 - Webhook Registry
-./bin/webhook-registry
-
-# Terminal 2 - Event Ingestion
-./bin/event-ingestion
-
-# Terminal 3 - API Gateway
-./bin/api-gateway
-
-# Terminal 4 - Observability
-./bin/observability
-
-# Terminal 5 - Retry Manager (when implemented)
-# ./bin/retry-manager
-
-# Terminal 6 - Webhook Dispatcher (when implemented)
-# ./bin/webhook-dispatcher
-```
-
-### 6. Access Services
+### 4. Access Services
 
 - **API Gateway**: http://localhost:8080
+
 - **Grafana Dashboard**: http://localhost:3000 (admin/admin123)
 - **Prometheus**: http://localhost:9090
 - **Kafka UI**: http://localhost:8888
@@ -111,7 +111,7 @@ First, get a JWT token:
 ```bash
 curl -X POST http://localhost:8080/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "password"}'
+  -d '{"username": "test", "password": "test"}'
 ```
 
 ### Create a Webhook
@@ -121,15 +121,16 @@ curl -X POST http://localhost:8080/api/v1/webhooks \
   -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "https://your-app.com/webhook",
+    "url": "https://httpbin.org/post",
     "event_types": ["user.created", "payment.completed"],
+    "secret": "your-secret-at-least-16-characters-long",
     "headers": {
       "X-Custom-Header": "value"
     }
   }'
 ```
 
-### Send an Event
+### Send an Event (Avro Serialized)
 
 ```bash
 curl -X POST http://localhost:8082/events \
@@ -145,10 +146,28 @@ curl -X POST http://localhost:8082/events \
   }'
 ```
 
+**Note**: Events are automatically serialized using Avro schemas loaded from the `schemas/` folder.
+
+
+
 ### List Webhooks
 
 ```bash
 curl -X GET http://localhost:8080/api/v1/webhooks \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### View Delivery Logs
+
+```bash
+curl -X GET "http://localhost:8080/api/v1/webhooks/WEBHOOK_ID/logs" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### View Webhook Statistics
+
+```bash
+curl -X GET "http://localhost:8080/api/v1/webhooks/WEBHOOK_ID/stats" \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
@@ -157,6 +176,8 @@ curl -X GET http://localhost:8080/api/v1/webhooks \
 Configuration is managed through `config.yaml` and environment variables. Key settings:
 
 ```yaml
+
+
 # Database
 database:
   host: postgres
@@ -169,7 +190,8 @@ database:
 security:
   jwt_secret: "your-secret-key-here"
   hmac_secret: "your-hmac-secret-here"
-  oauth2_enabled: false
+  rate_limit_enabled: true
+  rate_limit_rps: 100
 
 # Performance
 dispatcher:
@@ -210,6 +232,13 @@ Pre-configured dashboards show:
 
 Structured JSON logs are collected by Loki and can be queried in Grafana.
 
+### Delivery Logs
+
+All webhook delivery attempts are stored in the database and can be queried via:
+- API Gateway endpoints (`/api/v1/webhooks/{id}/logs`)
+- Direct database queries
+- Observability service gRPC APIs
+
 ## 🔐 Security Features
 
 - **Authentication**: JWT tokens with configurable expiration
@@ -230,18 +259,21 @@ webhook/
 │   ├── event-ingestion/
 │   ├── webhook-dispatcher/
 │   ├── retry-manager/
-│   └── observability/
+│   ├── observability/
+│   └── dlq/
 ├── internal/               # Internal packages
 │   ├── gateway/           # API Gateway logic
 │   ├── registry/          # Webhook Registry logic
 │   ├── security/          # Authentication & authorization
 │   ├── observability/     # Metrics & logging
-│   └── retry/             # Retry management
+│   ├── retry/             # Retry management
+│   └── dlq/               # Dead letter queue management
 ├── pkg/                   # Shared packages
 │   ├── postgres/          # Database client
 │   ├── redis/             # Redis client
 │   ├── kafka/             # Kafka client
-│   └── metrics/           # Prometheus metrics
+│   ├── metrics/           # Prometheus metrics
+│   └── circuitbreaker/    # Circuit breaker implementation
 ├── proto/                 # Protocol buffer definitions
 ├── migrations/            # Database migrations
 ├── docker/                # Docker configurations
@@ -333,6 +365,11 @@ kubectl apply -f k8s/
    - Check Kafka consumer lag
    - Verify network connectivity
 
+4. **Delivery Logs Empty**
+   - Check observability service connectivity
+   - Verify database schema matches code
+   - Check dispatcher observability integration
+
 ### Debug Commands
 
 ```bash
@@ -340,13 +377,16 @@ kubectl apply -f k8s/
 curl http://localhost:8080/health
 
 # View service logs
-docker-compose logs webhook-registry
+docker-compose logs webhook-dispatcher
 
 # Check Kafka topics
 docker exec -it webhook-kafka kafka-topics --list --bootstrap-server localhost:9092
 
 # Monitor metrics
-curl http://localhost:8080/metrics
+curl http://localhost:9090/metrics
+
+# Check delivery logs in database
+docker-compose exec postgres psql -U postgres -d webhook_db -c "SELECT COUNT(*) FROM delivery_logs;"
 ```
 
 ## 📝 API Reference
@@ -362,12 +402,17 @@ curl http://localhost:8080/metrics
 ### Event Ingestion
 
 - `POST /events` - Send event (public endpoint)
-- `POST /api/v1/events` - Send event (authenticated)
 
-### Monitoring
+### Monitoring & Observability
 
 - `GET /health` - Health check
 - `GET /metrics` - Prometheus metrics
+- `GET /api/v1/webhooks/{id}/logs` - Get delivery logs
+- `GET /api/v1/webhooks/{id}/stats` - Get delivery statistics
+
+### Authentication
+
+- `POST /auth/login` - Get JWT token
 
 ## 🤝 Contributing
 
