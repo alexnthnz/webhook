@@ -282,8 +282,8 @@ func (s *Service) storeDeliveryLog(ctx context.Context, req *pb.RecordDeliveryEv
 		INSERT INTO delivery_logs (
 			event_id, webhook_id, customer_id, event_type, status, 
 			http_status_code, attempt_number, latency_ms, error_message, 
-			timestamp, metadata
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			attempted_at, request_payload, response_payload, request_headers, response_headers
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 
 	timestamp := time.Now()
@@ -291,11 +291,11 @@ func (s *Service) storeDeliveryLog(ctx context.Context, req *pb.RecordDeliveryEv
 		timestamp = req.Timestamp.AsTime()
 	}
 
-	metadataJSON := "{}"
-	if req.Metadata != nil && len(req.Metadata) > 0 {
-		// Convert metadata to JSON string
-		metadataJSON = fmt.Sprintf(`{%s}`, mapToJSONString(req.Metadata))
-	}
+	// Prepare payload and headers (simplified for now)
+	requestPayload := "{}"
+	responsePayload := ""
+	requestHeaders := "{}"
+	responseHeaders := "{}"
 
 	_, err := s.db.Pool().Exec(ctx, query,
 		req.EventId,
@@ -308,7 +308,10 @@ func (s *Service) storeDeliveryLog(ctx context.Context, req *pb.RecordDeliveryEv
 		req.LatencyMs,
 		req.ErrorMessage,
 		timestamp,
-		metadataJSON,
+		requestPayload,
+		responsePayload,
+		requestHeaders,
+		responseHeaders,
 	)
 
 	return err
@@ -333,13 +336,13 @@ func (s *Service) getDeliveryLogs(ctx context.Context, req *pb.GetWebhookLogsReq
 	}
 
 	if req.StartTime != nil {
-		whereClause += fmt.Sprintf(" AND timestamp >= $%d", argIndex)
+		whereClause += fmt.Sprintf(" AND attempted_at >= $%d", argIndex)
 		args = append(args, req.StartTime.AsTime())
 		argIndex++
 	}
 
 	if req.EndTime != nil {
-		whereClause += fmt.Sprintf(" AND timestamp <= $%d", argIndex)
+		whereClause += fmt.Sprintf(" AND attempted_at <= $%d", argIndex)
 		args = append(args, req.EndTime.AsTime())
 		argIndex++
 	}
@@ -362,9 +365,9 @@ func (s *Service) getDeliveryLogs(ctx context.Context, req *pb.GetWebhookLogsReq
 	query := fmt.Sprintf(`
 		SELECT event_id, webhook_id, customer_id, event_type, status, 
 		       http_status_code, attempt_number, latency_ms, error_message, 
-		       timestamp, metadata
+		       attempted_at, request_payload, response_payload, request_headers, response_headers
 		FROM delivery_logs %s
-		ORDER BY timestamp DESC
+		ORDER BY attempted_at DESC
 		LIMIT $%d OFFSET $%d
 	`, whereClause, argIndex, argIndex+1)
 
@@ -380,8 +383,8 @@ func (s *Service) getDeliveryLogs(ctx context.Context, req *pb.GetWebhookLogsReq
 	for rows.Next() {
 		var log pb.LogEntry
 		var statusStr string
-		var metadataStr string
-		var timestamp time.Time
+		var attemptedAt time.Time
+		var requestPayload, responsePayload, requestHeaders, responseHeaders string
 
 		err := rows.Scan(
 			&log.EventId,
@@ -393,8 +396,11 @@ func (s *Service) getDeliveryLogs(ctx context.Context, req *pb.GetWebhookLogsReq
 			&log.AttemptNumber,
 			&log.LatencyMs,
 			&log.ErrorMessage,
-			&timestamp,
-			&metadataStr,
+			&attemptedAt,
+			&requestPayload,
+			&responsePayload,
+			&requestHeaders,
+			&responseHeaders,
 		)
 		if err != nil {
 			s.log.WithError(err).Error("Failed to scan log row")
@@ -402,11 +408,14 @@ func (s *Service) getDeliveryLogs(ctx context.Context, req *pb.GetWebhookLogsReq
 		}
 
 		log.Status = s.convertStringToDeliveryStatus(statusStr)
-		log.Timestamp = timestamppb.New(timestamp)
+		log.Timestamp = timestamppb.New(attemptedAt)
 		log.LogId = fmt.Sprintf("%s-%d", log.EventId, log.AttemptNumber)
+		log.RequestPayload = requestPayload
+		log.ResponsePayload = responsePayload
 
-		// Parse metadata JSON (simplified)
-		log.Metadata = make(map[string]string)
+		// Parse headers JSON (simplified)
+		log.RequestHeaders = make(map[string]string)
+		log.ResponseHeaders = make(map[string]string)
 
 		logs = append(logs, &log)
 	}

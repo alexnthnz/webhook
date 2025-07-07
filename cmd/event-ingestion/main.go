@@ -72,6 +72,10 @@ func main() {
 		CompressionType:   cfg.EventIngestion.Kafka.CompressionType,
 		BatchSize:         cfg.EventIngestion.Kafka.BatchSize,
 		LingerMs:          cfg.EventIngestion.Kafka.LingerMs,
+		RetryBackoffMs:    cfg.EventIngestion.Kafka.RetryBackoffMs,
+		MaxRetries:        cfg.EventIngestion.Kafka.MaxRetries,
+		RequestTimeoutMs:  cfg.EventIngestion.Kafka.RequestTimeoutMs,
+		MessageTimeoutMs:  cfg.EventIngestion.Kafka.MessageTimeoutMs,
 		Acks:              cfg.EventIngestion.Kafka.Acks,
 		EnableIdempotence: cfg.EventIngestion.Kafka.EnableIdempotence,
 	}
