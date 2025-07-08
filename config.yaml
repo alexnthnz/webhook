@@ -150,6 +150,13 @@ metrics:
   namespace: "webhook"
   subsystem: "service"
 
+# Schema Registry Configuration
+schema_registry:
+  port: 8088
+  url: "http://schema-registry-service:8088"
+  username: ""
+  password: ""
+
 # Security Configuration
 security:
   oauth2_enabled: false

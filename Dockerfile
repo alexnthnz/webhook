@@ -41,7 +41,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/api-gateway .
     CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o bin/dlq ./cmd/dlq
 
 # Base runtime image - use debian slim for better C library compatibility
-FROM debian:bullseye-slim AS base
+FROM debian:bullseye-slim AS runtime-base
 
 # Install ca-certificates for HTTPS requests and librdkafka runtime
 RUN apt-get update && apt-get install -y \
@@ -61,58 +61,61 @@ WORKDIR /app
 # Copy configuration files
 COPY config/ ./config/
 COPY migrations/ ./migrations/
+COPY schemas/ ./schemas/
 COPY config.yaml .
 
 # API Gateway service
-FROM base AS api-gateway
+FROM runtime-base AS api-gateway
 COPY --from=builder /app/bin/api-gateway .
 USER webhook
 EXPOSE 8080
 CMD ["./api-gateway"]
 
 # Webhook Registry service
-FROM base AS webhook-registry
+FROM runtime-base AS webhook-registry
 COPY --from=builder /app/bin/webhook-registry .
 USER webhook
 EXPOSE 8086
 CMD ["./webhook-registry"]
 
 # Event Ingestion service
-FROM base AS event-ingestion
+FROM runtime-base AS event-ingestion
 COPY --from=builder /app/bin/event-ingestion .
 USER webhook
 EXPOSE 8082
 CMD ["./event-ingestion"]
 
 # Webhook Dispatcher service
-FROM base AS webhook-dispatcher
+FROM runtime-base AS webhook-dispatcher
 COPY --from=builder /app/bin/webhook-dispatcher .
 USER webhook
 CMD ["./webhook-dispatcher"]
 
 # Retry Manager service
-FROM base AS retry-manager
+FROM runtime-base AS retry-manager
 COPY --from=builder /app/bin/retry-manager .
 USER webhook
 EXPOSE 8083
 CMD ["./retry-manager"]
 
 # Observability service
-FROM base AS observability
+FROM runtime-base AS observability
 COPY --from=builder /app/bin/observability .
 USER webhook
 EXPOSE 8084 9091
 CMD ["./observability"]
 
 # DLQ service
-FROM base AS dlq
+FROM runtime-base AS dlq
 COPY --from=builder /app/bin/dlq .
 USER webhook
 EXPOSE 8087
 CMD ["./dlq"]
 
+
+
 # Development image with all services
-FROM base AS development
+FROM runtime-base AS development
 COPY --from=builder /app/bin/ ./bin/
 RUN chown -R webhook:webhook /app
 USER webhook

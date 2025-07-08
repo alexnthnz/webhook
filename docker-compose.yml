@@ -68,27 +68,6 @@ services:
     volumes:
       - ./docker/kafka/data:/var/lib/kafka/data
 
-  schema-registry:
-    image: confluentinc/cp-schema-registry:7.7.0
-    container_name: webhook-schema-registry
-    ports:
-      - "8081:8081"
-    depends_on:
-      - kafka-kraft 
-    environment:
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka-kraft:29092
-      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: PLAINTEXT
-      SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_LISTENERS: 'http://schema-registry:8081'
-      SCHEMA_REGISTRY_SCHEMA_REGISTRY_INTER_INSTANCE_PROTOCOL: "http"
-      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: INFO
-      SCHEMA_REGISTRY_KAFKASTORE_TOPIC: _schemas
-      SCHEMA_REGISTRY_DEBUG: true
-    networks:
-      - webhook-network
-    volumes:
-      - ./docker/schema-registry:/var/lib/schema-registry
-
   kafka-ui:
     container_name: webhook-kafka-ui
     depends_on:
@@ -113,6 +92,7 @@ services:
       - "9090:9090"
     volumes:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./docker/prometheus/webhook_rules.yml:/etc/prometheus/webhook_rules.yml
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -153,6 +133,25 @@ services:
     networks:
       - webhook-network
 
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.7.0
+    container_name: webhook-schema-registry
+    ports:
+      - "8081:8081"
+    depends_on:
+      - kafka-kraft 
+    environment:
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka-kraft:29092
+      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: PLAINTEXT
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: 'http://schema-registry:8081'
+      SCHEMA_REGISTRY_SCHEMA_REGISTRY_INTER_INSTANCE_PROTOCOL: "http"
+      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: INFO
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC: _schemas
+      SCHEMA_REGISTRY_DEBUG: true
+    networks:
+      - webhook-network
+
   # Webhook Services
   api-gateway:
     build:
@@ -175,11 +174,17 @@ services:
       KAFKA_BROKERS: kafka-kraft:29092
       WEBHOOK_REGISTRY_ADDR: webhook-registry:8086
       OBSERVABILITY_ADDR: observability:8085
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=api-gateway"
+        env: "ENVIRONMENT=development"
     depends_on:
       - postgres
       - redis
       - kafka-kraft
-      - webhook-registry
     networks:
       - webhook-network
 
@@ -204,6 +209,7 @@ services:
     depends_on:
       - postgres
       - redis
+      - kafka-kraft
     networks:
       - webhook-network
 
@@ -219,10 +225,17 @@ services:
       ENVIRONMENT: development
       LOG_LEVEL: info
       KAFKA_BROKERS: kafka-kraft:29092
-      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=event-ingestion"
+        env: "ENVIRONMENT=development"
     depends_on:
+      - postgres
+      - redis
       - kafka-kraft
-      - schema-registry
     networks:
       - webhook-network
 
@@ -239,11 +252,17 @@ services:
       WEBHOOK_REGISTRY_ADDR: webhook-registry:8086
       RETRY_MANAGER_ADDR: retry-manager:8084
       OBSERVABILITY_ADDR: observability:8085
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=webhook-dispatcher"
+        env: "ENVIRONMENT=development"
     depends_on:
+      - postgres
+      - redis
       - kafka-kraft
-      - webhook-registry
-      - retry-manager
-      - observability
     networks:
       - webhook-network
 
@@ -261,7 +280,9 @@ services:
       REDIS_ADDRESS: redis:6379
       REDIS_PASSWORD: redis123
     depends_on:
+      - postgres
       - redis
+      - kafka-kraft
     networks:
       - webhook-network
 
@@ -279,6 +300,10 @@ services:
       LOG_LEVEL: info
       METRICS_ENABLED: true
       METRICS_LISTEN_ADDR: ":9091"
+    depends_on:
+      - postgres
+      - redis
+      - kafka-kraft
     networks:
       - webhook-network
 
@@ -305,9 +330,12 @@ services:
       KAFKA_BROKERS: kafka-kraft:29092
     depends_on:
       - postgres
+      - redis
       - kafka-kraft
     networks:
       - webhook-network
+
+
 
 # Named volumes for data persistence
 volumes:
@@ -317,8 +345,7 @@ volumes:
     driver: local
   kafka_data:
     driver: local
-  schema_registry_data:
-    driver: local
+
   prometheus_data:
     driver: local
   grafana_data:

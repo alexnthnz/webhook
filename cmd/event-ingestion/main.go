@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,47 +17,45 @@ import (
 
 	"github.com/alexnthnz/webhook/config"
 	"github.com/alexnthnz/webhook/internal/security"
+	"github.com/alexnthnz/webhook/pkg/avro"
 	"github.com/alexnthnz/webhook/pkg/kafka"
 	"github.com/alexnthnz/webhook/pkg/metrics"
 )
 
 type EventIngestionService struct {
-	config     *config.Config
-	logger     *logrus.Logger
-	kafka      *kafka.Producer
-	metrics    *metrics.Metrics
-	jwtManager *security.JWTManager
+	config         *config.Config
+	logger         *logrus.Logger
+	kafka          *kafka.Producer
+	metrics        *metrics.Metrics
+	jwtManager     *security.JWTManager
+	avroSerializer *avro.Serializer
+	eventSchema    string
+}
+
+type EventData struct {
+	UserID int64  `json:"user_id"`
+	Name   string `json:"name"`
 }
 
 type Event struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`
-	Source    string                 `json:"source"`
-	Data      map[string]interface{} `json:"data"`
-	Timestamp time.Time              `json:"timestamp"`
+	ID        string    `json:"id"`
+	Type      string    `json:"type"`
+	Source    string    `json:"source"`
+	Data      EventData `json:"data"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 func main() {
-	// Initialize logger
-	log := logrus.New()
-	log.SetFormatter(&logrus.JSONFormatter{})
-	log.SetLevel(logrus.InfoLevel)
-
 	// Load configuration
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.Load()
 	if err != nil {
-		log.WithError(err).Fatal("Failed to load configuration")
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Set log level from config
-	level, err := logrus.ParseLevel(cfg.LogLevel)
-	if err != nil {
-		log.WithError(err).Warn("Invalid log level, using info")
-		level = logrus.InfoLevel
-	}
-	log.SetLevel(level)
-
-	log.Info("Starting Event Ingestion Service")
+	// Setup logging
+	log := logrus.New()
+	log.SetLevel(logrus.InfoLevel)
+	log.SetFormatter(&logrus.JSONFormatter{})
 
 	// Initialize metrics
 	metricsConfig := metrics.Config{
@@ -94,13 +93,29 @@ func main() {
 		cfg.Security.JWTExpiration,
 	)
 
+	// Initialize avro serializer with Schema Registry
+	avroSerializer := avro.NewSerializer("http://schema-registry:8081")
+
+	// Load Avro schema from file
+	schemaBytes, err := os.ReadFile("schemas/event.avsc")
+	if err != nil {
+		log.WithError(err).Fatal("Failed to read Avro schema file")
+	}
+
+	// Load schema into serializer
+	if err := avroSerializer.LoadSchema("webhook-events", "schemas/event.avsc"); err != nil {
+		log.WithError(err).Fatal("Failed to load Avro schema")
+	}
+
 	// Initialize service
 	service := &EventIngestionService{
-		config:     cfg,
-		logger:     log,
-		kafka:      producer,
-		metrics:    m,
-		jwtManager: jwtManager,
+		config:         cfg,
+		logger:         log,
+		kafka:          producer,
+		metrics:        m,
+		jwtManager:     jwtManager,
+		avroSerializer: avroSerializer,
+		eventSchema:    string(schemaBytes),
 	}
 
 	// Create HTTP server
@@ -178,15 +193,29 @@ func (s *EventIngestionService) handleEvent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Publish to Kafka
-	eventData, err := json.Marshal(event)
+	// Convert event to map for Avro serialization
+	eventMap := map[string]interface{}{
+		"id":     event.ID,
+		"type":   event.Type,
+		"source": event.Source,
+		"data": map[string]interface{}{
+			"user_id": event.Data.UserID,
+			"name":    event.Data.Name,
+		},
+		"timestamp": event.Timestamp.UnixMilli(),
+		"version":   1,
+	}
+
+	// Serialize with Avro using loaded schema
+	eventData, err := s.avroSerializer.Serialize("webhook-events", eventMap)
 	if err != nil {
-		s.logger.WithError(err).Error("Failed to marshal event")
+		s.logger.WithError(err).Error("Failed to serialize event with Avro")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		s.metrics.HTTPRequests.WithLabelValues("POST", "/events", "500").Inc()
 		return
 	}
 
+	// Publish to Kafka
 	if err := s.kafka.Produce(s.config.EventIngestion.Kafka.EventsTopic, []byte(event.ID), eventData, nil); err != nil {
 		s.logger.WithError(err).Error("Failed to publish event to Kafka")
 		http.Error(w, "Failed to process event", http.StatusInternalServerError)

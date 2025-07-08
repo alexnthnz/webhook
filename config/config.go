@@ -73,9 +73,6 @@ type EventIngestionConfig struct {
 	// Kafka producer configuration
 	Kafka KafkaProducerConfig `yaml:"kafka"`
 
-	// Schema Registry configuration
-	SchemaRegistry SchemaRegistryConfig `yaml:"schema_registry"`
-
 	// Rate limiting
 	RateLimitEnabled bool `yaml:"rate_limit_enabled" envconfig:"RATE_LIMIT_ENABLED"`
 	RateLimitRPS     int  `yaml:"rate_limit_rps" envconfig:"RATE_LIMIT_RPS"`
@@ -217,13 +214,6 @@ type KafkaConsumerConfig struct {
 
 	// Topics
 	EventsTopic string `yaml:"events_topic" envconfig:"KAFKA_EVENTS_TOPIC"`
-}
-
-// SchemaRegistryConfig holds Schema Registry configuration
-type SchemaRegistryConfig struct {
-	URL      string `yaml:"url" envconfig:"SCHEMA_REGISTRY_URL"`
-	Username string `yaml:"username" envconfig:"SCHEMA_REGISTRY_USERNAME"`
-	Password string `yaml:"password" envconfig:"SCHEMA_REGISTRY_PASSWORD"`
 }
 
 // MetricsConfig holds metrics configuration
@@ -443,6 +433,7 @@ func setDefaults(config *Config) {
 
 	// Enable metrics by default
 	config.Metrics.Enabled = true
+
 }
 
 // validateConfig validates the configuration

@@ -1,0 +1,46 @@
+{
+  "type": "record",
+  "name": "WebhookEvent",
+  "namespace": "com.webhook.events",
+  "doc": "Schema for webhook events",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string",
+      "doc": "Unique identifier for the event"
+    },
+    {
+      "name": "type",
+      "type": "string",
+      "doc": "Event type (e.g., user.created, payment.completed)"
+    },
+    {
+      "name": "source",
+      "type": "string",
+      "doc": "Source service that generated the event"
+    },
+    {
+      "name": "data",
+      "type": {
+        "type": "record",
+        "name": "EventData",
+        "fields": [
+          {"name": "user_id", "type": "long"},
+          {"name": "name", "type": "string"}
+        ]
+      },
+      "doc": "Event payload data"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "doc": "Event timestamp in milliseconds since epoch"
+    },
+    {
+      "name": "version",
+      "type": "int",
+      "default": 1,
+      "doc": "Schema version for evolution tracking"
+    }
+  ]
+} 
